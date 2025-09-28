@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import ReactDOM from 'react-dom/client';
 import { courseData } from './data/courseData';
 import type { CourseData, Level, Module, Lesson, LessonContentItem, QuizItem, GlossaryItem, SafetyItem } from './types';
@@ -26,6 +27,130 @@ const findLessonById = (data: CourseData, id: string | null): Lesson | null => {
 
 // --- Sub-components ---
 
+const OilField3DBackground: React.FC = () => {
+    const mountRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!mountRef.current || !(window as any).THREE) return;
+
+        const THREE = (window as any).THREE;
+        let animationFrameId: number;
+
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x000104, 0.0035);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 50, 100);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
+        mountRef.current.appendChild(renderer.domElement);
+
+        // Lighting
+        scene.add(new THREE.AmbientLight(0x404040, 2));
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(10, 30, 20);
+        scene.add(directionalLight);
+
+        // Ground plane
+        const planeGeometry = new THREE.PlaneGeometry(1000, 1000, 50, 50);
+        const planeMaterial = new THREE.MeshStandardMaterial({
+            color: 0x050505,
+            metalness: 0.8,
+            roughness: 0.6,
+            wireframe: true,
+        });
+        const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.y = -5;
+        scene.add(plane);
+
+        // Cylinders (derricks)
+        const derrickGroup = new THREE.Group();
+        const derrickMaterial = new THREE.MeshStandardMaterial({
+            color: 0x888888, metalness: 0.9, roughness: 0.4,
+        });
+
+        for (let i = 0; i < 50; i++) {
+            const height = Math.random() * 40 + 10;
+            const derrick = new THREE.Mesh(
+                new THREE.CylinderGeometry(1, Math.random() * 2 + 0.5, height, 8),
+                derrickMaterial
+            );
+            derrick.position.set(
+                Math.random() * 800 - 400,
+                height / 2 - 5,
+                Math.random() * 800 - 400
+            );
+            derrickGroup.add(derrick);
+        }
+        scene.add(derrickGroup);
+        
+        // Particle system
+        const particlesGeometry = new THREE.BufferGeometry();
+        const particlesCnt = 5000;
+        const posArray = new Float32Array(particlesCnt * 3);
+        for (let i = 0; i < particlesCnt * 3; i++) {
+            posArray[i] = (Math.random() - 0.5) * 800;
+        }
+        particlesGeometry.setAttribute('position', new THREE.BufferAttribute(posArray, 3));
+        const particlesMaterial = new THREE.PointsMaterial({
+            size: 0.2, color: 0x0088ff, transparent: true,
+            blending: THREE.AdditiveBlending, depthWrite: false,
+        });
+        const particleMesh = new THREE.Points(particlesGeometry, particlesMaterial);
+        scene.add(particleMesh);
+
+        // Animation loop
+        const clock = new THREE.Clock();
+        const animate = () => {
+            const elapsedTime = clock.getElapsedTime();
+            particleMesh.position.y = (elapsedTime * 5) % 200 - 5;
+            camera.position.x = Math.sin(elapsedTime * 0.1) * 50;
+            camera.position.z = Math.cos(elapsedTime * 0.1) * 150;
+            camera.lookAt(0, 20, 0);
+            renderer.render(scene, camera);
+            animationFrameId = requestAnimationFrame(animate);
+        };
+        animate();
+
+        const handleResize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+        window.addEventListener('resize', handleResize);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            cancelAnimationFrame(animationFrameId);
+            if (mountRef.current) {
+                mountRef.current.removeChild(renderer.domElement);
+            }
+             scene.traverse(object => {
+                if ((object as any).geometry) (object as any).geometry.dispose();
+                if ((object as any).material) {
+                    if (Array.isArray((object as any).material)) {
+                        (object as any).material.forEach((material: any) => material.dispose());
+                    } else {
+                        (object as any).material.dispose();
+                    }
+                }
+            });
+            renderer.dispose();
+        };
+    }, []);
+
+    return (
+        <div
+            ref={mountRef}
+            className="fixed top-0 left-0 w-full h-screen -z-10 opacity-20"
+        ></div>
+    );
+};
+
 const Loader: React.FC = () => (
   <div className="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-50">
     <div className="text-center text-white">
@@ -35,14 +160,6 @@ const Loader: React.FC = () => (
     </div>
   </div>
 );
-
-const ParallaxBackground: React.FC = () => (
-    <div
-        className="fixed top-0 left-0 w-full h-screen bg-cover bg-fixed bg-center -z-10"
-        style={{ backgroundImage: "url('https://picsum.photos/seed/oilfield/1920/1080')", opacity: 0.1 }}
-    ></div>
-);
-
 
 const LessonImage: React.FC<{ item: { src: string; alt: string; caption: string } }> = ({ item }) => (
     <figure className="my-6 animate-fade-in" aria-label={item.alt}>
@@ -193,11 +310,20 @@ const Sidebar: React.FC<{
                     {data.map(level => (
                         <div key={level.id} className="mb-4">
                             <h2 className="text-lg font-semibold text-blue-300">{level.title}</h2>
-                            {level.modules.map(module => (
+                            {level.modules.map(module => {
+                                const allLessonsInModuleCompleted = module.lessons.length > 0 && module.lessons.every(lesson => completedLessons.has(lesson.id));
+                                return (
                                 <div key={module.id} className="mt-2">
                                     <button onClick={() => toggleModule(module.id)} className="w-full text-left font-semibold flex justify-between items-center p-2 rounded hover:bg-gray-700">
-                                        <span>{module.title}</span>
-                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform ${openModules[module.id] ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
+                                        <span className={`flex items-center flex-1 min-w-0 ${allLessonsInModuleCompleted ? 'text-gray-400' : ''}`}>
+                                            {allLessonsInModuleCompleted && (
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2 text-green-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                                </svg>
+                                            )}
+                                            <span className="truncate">{module.title}</span>
+                                        </span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transition-transform flex-shrink-0 ml-2 ${openModules[module.id] ? 'rotate-90' : ''} ${allLessonsInModuleCompleted ? 'text-gray-400' : ''}`} viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" /></svg>
                                     </button>
                                     {openModules[module.id] && (
                                         <MotionUl
@@ -216,17 +342,17 @@ const Sidebar: React.FC<{
                                                         }}
                                                         className={`block p-2 text-sm rounded transition-colors duration-200 flex items-center ${activeLessonId === lesson.id ? 'bg-blue-600' : 'hover:bg-gray-700'}`}
                                                     >
-                                                         <span className={`w-5 h-5 mr-2 rounded-full flex items-center justify-center border-2 ${completedLessons.has(lesson.id) ? 'bg-green-500 border-green-400' : 'border-gray-400'}`}>
+                                                         <span className={`w-5 h-5 mr-2 rounded-full flex items-center justify-center border-2 flex-shrink-0 ${completedLessons.has(lesson.id) ? 'bg-green-500 border-green-400' : 'border-gray-400'}`}>
                                                             {completedLessons.has(lesson.id) && <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                                                         </span>
-                                                        {lesson.title}
+                                                        <span className="truncate">{lesson.title}</span>
                                                     </a>
                                                 </li>
                                             ))}
                                         </MotionUl>
                                     )}
                                 </div>
-                            ))}
+                            )})}
                         </div>
                     ))}
                 </nav>
@@ -340,7 +466,7 @@ const App: React.FC = () => {
 
     return (
         <>
-            <ParallaxBackground />
+            <OilField3DBackground />
             <div className="relative min-h-screen">
                 <Sidebar 
                     data={courseData} 
